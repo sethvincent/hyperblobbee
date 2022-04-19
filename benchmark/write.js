@@ -5,7 +5,8 @@ const Hyperbee = require('hyperbee')
 const Hyperblobs = require('hyperblobs')
 const { once } = require('events')
 const { promisify } = require('util')
-const Hyperblobbee = require('..')
+const Hyperblobbee = require('../old-index')
+const Hyperblobbee2 = require('../index')
 const tempy = require('tempy')
 const del = require('del')
 
@@ -37,6 +38,35 @@ module.exports = (fileSize) => {
     b.toc()
     await core.close()
     await cleanup(dir)
+    b.end()
+  })
+
+  bench(`Hyperblobee2: Write ${toMb(fileSize)} file`, async (b) => {
+    // setup
+    const dir = tempy.directory()
+    const core = new Hypercore10(dir)
+    const core2 = new Hypercore10(dir + 'index')
+    const db = new Hyperbee(core2, {
+      keyEncoding: 'utf-8',
+      valueEncoding: 'json'
+    })
+    const blobs = new Hyperblobbee2({
+      core,
+      db
+    })
+    await db.ready()
+    const buf = Buffer.alloc(fileSize).fill('abcdefg')
+
+    // task
+    b.tic()
+    for (let j = 0; j < b.iterations; j++) {
+      await blobs.put('foo' + j, buf)
+    }
+    b.toc()
+    await core.close()
+    await core2.close()
+    await cleanup(dir)
+    await cleanup(dir + 'index')
     b.end()
   })
 

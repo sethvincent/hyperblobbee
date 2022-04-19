@@ -1,110 +1,35 @@
-// @ts-check
-const mutexify = require('mutexify')
-
-const { BlobReadStream, BlobWriteStream } = require('./lib/streams')
+const Hyperblobs = require('hyperblobs')
 
 const DEFAULT_BLOCK_SIZE = 1024 * 512 // 512KB
 const DEFAULT_BUFFER_SIZE = 1024 * 1024 * 10 // 10MB
 
-/**
- * @typedef {Object} Options
- * @property {number} [blockSize] The block size that will be used when storing large blobs.
- * @property {number} [bufferSize] The size of the buffer used when writing large blobs.
- */
-
 module.exports = class Hyperblobbee {
-  /** @private */
-  _blockSize
-  /** @private */
-  _bufferSize
-  /** @private */
-  _lock
-  /** @private */
-  _db
+	constructor (options = {}) {
+		this.blockSize = options.blockSize || DEFAULT_BLOCK_SIZE
+    this.bufferSize = options.bufferSize || DEFAULT_BUFFER_SIZE
 
-  /**
-   * @param {any} db Hyperbee instance
-   * @param {Pick<Options, 'blockSize' | 'bufferSize'>} [opts]
-   */
-  constructor(db, opts = {}) {
-    this._blockSize = opts.blockSize || DEFAULT_BLOCK_SIZE
-    this._bufferSize = opts.bufferSize || DEFAULT_BUFFER_SIZE
-    this._lock = mutexify()
-    this._db = db.sub(Buffer.alloc(0), {
-      sep: Buffer.alloc(0),
-      valueEncoding: 'binary',
-      keyEncoding: 'binary',
-    })
-  }
+		this.blobs = new Hyperblobs(options.core, {
+			blockSize: this.blockSize
+		})
 
-  get blockSize() {
-    return this._blockSize
-  }
+		this.index = options.db
+	}
 
-  get bufferSize() {
-    return this._bufferSize
-  }
+	async put (key, blob, opts = {}) {
+		const id = await this.blobs.put(blob, opts)
+		await this.index.put(key, id)
+	}
 
-  /**
-   * @returns {any} Hyperbee instance
-   */
-  get db() {
-    return this._db
-  }
+	async get (key, opts = {}) {
+		const id = await this.index.get(key)
+		return this.blobs.get(id.value)
+	}
 
-  get locked() {
-    return this._lock.locked
-  }
+	createReadStream (key, opts = {}) {
 
-  /**
-   * @param {string} key
-   * @param {Buffer} blob
-   * @param {Options} [opts]
-   */
-  async put(key, blob, opts = {}) {
-    if (!opts.blockSize) opts.blockSize = this._blockSize
+	}
 
-    const stream = this.createWriteStream(key, opts)
-    for (let i = 0; i < blob.length; i += opts.blockSize) {
-      stream.write(blob.slice(i, i + opts.blockSize))
-    }
-    stream.end()
+	createWriteStream (key, opts = {}) {
 
-    return new Promise((resolve, reject) => {
-      stream.once('error', reject)
-      stream.once('close', () => resolve(stream))
-    })
-  }
-
-  /**
-   * @param {string} key
-   * @param {Options} [opts]
-   */
-  async get(key, opts) {
-    const res = []
-    for await (const block of this.createReadStream(key, opts)) {
-      res.push(block)
-    }
-    return Buffer.concat(res)
-  }
-
-  /**
-   * @param {string} key
-   * @param {Options} [opts] - TODO: Fix this type, shouldn't include `blockSize`
-   */
-  createReadStream(key, opts) {
-    return new BlobReadStream(this._db, key, opts)
-  }
-
-  /**
-   * @param {string} key
-   * @param {Options} [opts]
-   */
-  createWriteStream(key, opts = {}) {
-    return new BlobWriteStream(this._db, key, this._lock, {
-      ...opts,
-      blockSize: opts.blockSize || this._blockSize,
-      bufferSize: opts.bufferSize || this._bufferSize,
-    })
-  }
+	}
 }
